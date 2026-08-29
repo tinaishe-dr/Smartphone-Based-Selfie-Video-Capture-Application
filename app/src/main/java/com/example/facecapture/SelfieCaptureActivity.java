@@ -6,6 +6,8 @@ import android.os.Bundle;
 
 import android.os.Handler;
 import android.os.Looper;
+import android.os.CountDownTimer;
+import android.widget.TextView;
 
 import androidx.camera.view.transform.CoordinateTransform;
 import androidx.camera.view.transform.ImageProxyTransformFactory;
@@ -68,6 +70,12 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     private VideoCapture<Recorder> videoCapture;
     private Recording recording;
     private Button startRecordingButton;
+    private TextView countdownText;
+
+    private CountDownTimer countdownTimer;
+
+    private boolean isCountdownRunning = false;
+    private boolean isRecording = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -79,6 +87,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
         selfiePreview = findViewById(R.id.selfiePreview);
         faceGuide = findViewById(R.id.faceGuide);
         startRecordingButton = findViewById(R.id.startRecordingButton);
+        countdownText = findViewById(R.id.countdownText);
 
         startRecordingButton.setOnClickListener(v -> {
 
@@ -111,6 +120,43 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
             startSelfieCamera();
         }
+    }
+
+    private void startCountdown() {
+
+        if (isCountdownRunning || isRecording) {
+            return;
+        }
+
+        isCountdownRunning = true;
+
+        countdownText.setVisibility(View.VISIBLE);
+
+        countdownTimer = new CountDownTimer(5000, 1000) {
+
+            @Override
+            public void onTick(long millisUntilFinished) {
+
+                int seconds = (int) Math.ceil(millisUntilFinished / 1000.0);
+
+                countdownText.setText(String.valueOf(seconds));
+            }
+
+            @Override
+            public void onFinish() {
+
+                countdownText.setText("GO!");
+
+                isCountdownRunning = false;
+
+                startRecording();
+
+                countdownText.postDelayed(() -> {
+                    countdownText.setVisibility(View.GONE);
+                }, 500);
+            }
+
+        }.start();
     }
 
     private void startSelfieCamera() {
@@ -205,6 +251,12 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     }
 
     private void startRecording() {
+
+        if (isRecording) {
+            return;
+        }
+
+        isRecording = true;
 
         if (videoCapture == null) {
             Log.e("VIDEO_DEBUG", "VideoCapture is not ready");
@@ -526,9 +578,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                 faceWidth >= minFaceWidth &&
                                         faceWidth <= maxFaceWidth;
 
-                        boolean ready =
-                                centered &&
-                                        goodDistance;
+                        boolean ready = faceCenterInsideGuide && centered && goodDistance;
 
                         // Display the result
 
