@@ -2,6 +2,7 @@ package com.example.facecapture;
 
 import android.Manifest;
 import android.content.pm.PackageManager;
+import android.content.Intent;
 
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.Preview;
@@ -38,6 +39,9 @@ public class MainActivity extends AppCompatActivity {
     private Button startScanButton;
     private PreviewView cameraPreview;
     private PreviewView barcodePreview;
+    private Button continueButton;
+    private boolean barcodeScanned = false;
+    private ImageAnalysis barcodeImageAnalysis;
 
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int BARCODE_PERMISSION_CODE = 101;
@@ -52,6 +56,7 @@ public class MainActivity extends AppCompatActivity {
         startScanButton = findViewById(R.id.startScanButton);
         cameraPreview = findViewById(R.id.cameraPreview);
         barcodePreview = findViewById(R.id.barcodePreview);
+        continueButton = findViewById(R.id.continueButton);
 
         startCaptureButton.setOnClickListener(v ->
         {
@@ -79,6 +84,7 @@ public class MainActivity extends AppCompatActivity {
         });
 
         startScanButton.setOnClickListener(v -> {
+            barcodeScanned = false;
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.CAMERA
@@ -94,6 +100,33 @@ public class MainActivity extends AppCompatActivity {
                         BARCODE_PERMISSION_CODE
                 );
             }
+        });
+
+        continueButton.setOnClickListener(v -> {
+
+            String subjectId = subjectIdInput.getText()
+                    .toString()
+                    .trim();
+
+            if (subjectId.isEmpty()) {
+
+                Toast.makeText(
+                        this,
+                        "Please scan a barcode first",
+                        Toast.LENGTH_SHORT
+                ).show();
+
+                return;
+            }
+
+            Intent intent = new Intent(
+                    MainActivity.this,
+                    SelfieCaptureActivity.class
+            );
+
+            intent.putExtra("SUBJECT_ID", subjectId);
+
+            startActivity(intent);
         });
     }
 
@@ -204,14 +237,14 @@ public class MainActivity extends AppCompatActivity {
                 CameraSelector cameraSelector =
                         CameraSelector.DEFAULT_BACK_CAMERA;
 
-                ImageAnalysis imageAnalysis =
+                barcodeImageAnalysis =
                         new ImageAnalysis.Builder()
                                 .setBackpressureStrategy(
                                         ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
                                 )
                                 .build();
 
-                imageAnalysis.setAnalyzer(
+                barcodeImageAnalysis.setAnalyzer(
                         ContextCompat.getMainExecutor(this),
                         imageProxy -> {
 
@@ -228,7 +261,7 @@ public class MainActivity extends AppCompatActivity {
                         this,
                         cameraSelector,
                         preview,
-                        imageAnalysis
+                        barcodeImageAnalysis
                 );
 
             } catch (Exception e) {
@@ -260,13 +293,20 @@ public class MainActivity extends AppCompatActivity {
         scanner.process(image)
                 .addOnSuccessListener(barcodes -> {
 
+                    if (barcodeScanned) {
+                        return;
+                    }
+
                     for (Barcode barcode : barcodes) {
 
                         String rawValue = barcode.getRawValue();
 
                         if (rawValue != null && !rawValue.isEmpty()) {
 
+                            barcodeScanned = true;
+
                             subjectIdInput.setText(rawValue);
+                            barcodeImageAnalysis.clearAnalyzer();
 
                             Toast.makeText(
                                     this,
