@@ -1,4 +1,5 @@
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -8,16 +9,38 @@
         android:id="@+id/subjectIdText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:text="Subject: CHILD001"
+        android:textSize="20sp"
         android:gravity="center"
-        android:padding="10dp"
-        android:text="Subject ID"
-        android:textSize="20sp" />
+        android:padding="10dp" />
 
-    <androidx.camera.view.PreviewView
-        android:id="@+id/selfiePreview"
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1" />
+        android:layout_weight="1">
+
+        <androidx.camera.view.PreviewView
+            android:id="@+id/selfiePreview"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent" />
+
+        <View
+            android:id="@+id/faceGuide"
+            android:layout_width="260dp"
+            android:layout_height="330dp"
+            android:layout_gravity="center"
+            android:background="@drawable/face_guide" />
+
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/statusText"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Position your face inside the guide"
+        android:textSize="18sp"
+        android:gravity="center"
+        android:padding="12dp" />
 
     <Button
         android:id="@+id/startRecordingButton"
