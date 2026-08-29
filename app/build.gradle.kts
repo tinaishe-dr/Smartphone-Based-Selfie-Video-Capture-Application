@@ -1,3 +1,5 @@
+import com.android.tools.r8.internal.im
+
 plugins {
     alias(libs.plugins.android.application)
 }
@@ -34,6 +36,11 @@ android {
 }
 
 dependencies {
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("androidx.camera:camera-core:1.6.2")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.activity)
