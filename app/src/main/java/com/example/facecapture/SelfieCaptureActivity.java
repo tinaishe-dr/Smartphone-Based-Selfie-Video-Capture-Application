@@ -1,6 +1,7 @@
 package com.example.facecapture;
 
 import android.Manifest;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 
@@ -79,6 +80,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     private boolean faceReady = false;
     private boolean faceWasGoodDuringRecording = true;
     private String subjectId;
+    private Button backButton;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,6 +93,17 @@ public class SelfieCaptureActivity extends AppCompatActivity {
         faceGuide = findViewById(R.id.faceGuide);
         startRecordingButton = findViewById(R.id.startRecordingButton);
         countdownText = findViewById(R.id.countdownText);
+        backButton = findViewById(R.id.backButton);
+
+        backButton.setOnClickListener(v -> {
+            Intent intent = new Intent(
+                    SelfieCaptureActivity.this,
+                    MainActivity.class
+            );
+            startActivity(intent);
+
+        });
+
 
         startRecordingButton.setOnClickListener(v -> {
 
