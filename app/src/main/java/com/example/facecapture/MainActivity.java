@@ -17,8 +17,10 @@ import androidx.camera.core.Camera;
 import com.google.mlkit.vision.common.InputImage;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -40,6 +42,10 @@ public class MainActivity extends AppCompatActivity {
     private PreviewView cameraPreview;
     private PreviewView barcodePreview;
     private Button continueButton;
+    private View scanLine;
+    private View barcodeOverlay;
+    private View scannerBox;
+    private TextView scanInstruction;
     private boolean barcodeScanned = false;
     private ImageAnalysis barcodeImageAnalysis;
 
@@ -52,39 +58,54 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         subjectIdInput = findViewById(R.id.subjectIdInput);
-        startCaptureButton = findViewById(R.id.startCaptureButton);
+        //startCaptureButton = findViewById(R.id.startCaptureButton);
         startScanButton = findViewById(R.id.startScanButton);
-        cameraPreview = findViewById(R.id.cameraPreview);
+        //cameraPreview = findViewById(R.id.cameraPreview);
         barcodePreview = findViewById(R.id.barcodePreview);
         continueButton = findViewById(R.id.continueButton);
+        barcodeOverlay = findViewById(R.id.barcodeOverlay);
+        scannerBox = findViewById(R.id.scannerBox);
+        scanLine = findViewById(R.id.scanLine);
+        scanInstruction = findViewById(R.id.scanInstruction);
 
-        startCaptureButton.setOnClickListener(v ->
-        {
-            String subjectId = subjectIdInput.getText().toString().trim();
+        startScanAnimation();
 
-            if (subjectId.isEmpty()) {
-
-                Toast.makeText(
-                        MainActivity.this,
-                        "Please enter Subject ID",
-                        Toast.LENGTH_SHORT
-                ).show();
-
-                return;
-            }
-            String filename = generateFileName(subjectId);
-
-            Toast.makeText(
-                    MainActivity.this,
-                    "Preparing Capture: " + subjectId + "\nFilename: " + filename,
-                    Toast.LENGTH_SHORT
-            ).show();
-            checkCameraPermission();
-            startCamera();
-        });
+//        startCaptureButton.setOnClickListener(v ->
+//        {
+//            String subjectId = subjectIdInput.getText().toString().trim();
+//
+//            if (subjectId.isEmpty()) {
+//
+//                Toast.makeText(
+//                        MainActivity.this,
+//                        "Please enter Subject ID",
+//                        Toast.LENGTH_SHORT
+//                ).show();
+//
+//                return;
+//            }
+//            String filename = generateFileName(subjectId);
+//
+//            Toast.makeText(
+//                    MainActivity.this,
+//                    "Preparing Capture: " + subjectId + "\nFilename: " + filename,
+//                    Toast.LENGTH_SHORT
+//            ).show();
+//            checkCameraPermission();
+//            startCamera();
+//        });
 
         startScanButton.setOnClickListener(v -> {
+
             barcodeScanned = false;
+
+            // Show scanner UI
+            barcodeOverlay.setVisibility(View.VISIBLE);
+            scannerBox.setVisibility(View.VISIBLE);
+            scanInstruction.setVisibility(View.VISIBLE);
+
+            startScanAnimation();
+
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.CAMERA
@@ -127,6 +148,30 @@ public class MainActivity extends AppCompatActivity {
             intent.putExtra("SUBJECT_ID", subjectId);
 
             startActivity(intent);
+        });
+    }
+
+    private void startScanAnimation() {
+
+        scanLine.post(() -> {
+
+            float distance =
+                    ((View) scanLine.getParent()).getHeight()
+                            - scanLine.getHeight();
+
+            scanLine.animate()
+                    .translationY(distance)
+                    .setDuration(1500)
+                    .withEndAction(() -> {
+
+                        scanLine.animate()
+                                .translationY(0)
+                                .setDuration(1500)
+                                .withEndAction(this::startScanAnimation)
+                                .start();
+
+                    })
+                    .start();
         });
     }
 
@@ -306,7 +351,18 @@ public class MainActivity extends AppCompatActivity {
                             barcodeScanned = true;
 
                             subjectIdInput.setText(rawValue);
-                            barcodeImageAnalysis.clearAnalyzer();
+
+                            if (barcodeImageAnalysis != null) {
+                                barcodeImageAnalysis.clearAnalyzer();
+                            }
+
+                            // Stop scan-line animation
+                            scanLine.animate().cancel();
+
+                            // Hide scanner UI
+                            barcodeOverlay.setVisibility(View.GONE);
+                            scannerBox.setVisibility(View.GONE);
+                            scanInstruction.setVisibility(View.GONE);
 
                             Toast.makeText(
                                     this,
