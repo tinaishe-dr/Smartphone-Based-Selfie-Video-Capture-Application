@@ -18,6 +18,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.FaceCapture">
         <activity
+            android:name=".BarcodeScanActivity"
+            android:exported="false" />
+        <activity
             android:name=".SelfieCaptureActivity"
             android:exported="false" />
         <activity

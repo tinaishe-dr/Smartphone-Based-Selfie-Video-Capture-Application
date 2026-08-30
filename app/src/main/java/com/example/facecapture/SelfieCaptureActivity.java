@@ -76,6 +76,9 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
     private boolean isCountdownRunning = false;
     private boolean isRecording = false;
+    private boolean faceReady = false;
+    private boolean faceWasGoodDuringRecording = true;
+    private String subjectId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -91,16 +94,35 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
         startRecordingButton.setOnClickListener(v -> {
 
-            if (recording == null) {
-                startRecording();
-            } else {
+            if (recording == null && !isCountdownRunning && !isRecording) {
+
+                if (faceReady) {
+
+                    startCountdown();
+
+                } else {
+
+                    Toast.makeText(
+                            this,
+                            "Please position your face correctly first",
+                            Toast.LENGTH_SHORT
+                    ).show();
+                }
+
+            } else if (recording != null) {
+
                 stopRecording();
             }
 
         });
 
-        String subjectId = getIntent()
+        subjectId = getIntent()
                 .getStringExtra("SUBJECT_ID");
+
+        if (subjectId == null || subjectId.isEmpty()) {
+            subjectId = "UNKNOWN";
+        }
+
         subjectIdText.setText(
                 "Subject: " + subjectId
         );
@@ -121,7 +143,6 @@ public class SelfieCaptureActivity extends AppCompatActivity {
             startSelfieCamera();
         }
     }
-
     private void startCountdown() {
 
         if (isCountdownRunning || isRecording) {
@@ -132,12 +153,13 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
         countdownText.setVisibility(View.VISIBLE);
 
-        countdownTimer = new CountDownTimer(5000, 1000) {
+        countdownTimer = new CountDownTimer(3000, 1000) {
 
             @Override
             public void onTick(long millisUntilFinished) {
 
-                int seconds = (int) Math.ceil(millisUntilFinished / 1000.0);
+                int seconds =
+                        (int) Math.ceil(millisUntilFinished / 1000.0);
 
                 countdownText.setText(String.valueOf(seconds));
             }
@@ -256,12 +278,12 @@ public class SelfieCaptureActivity extends AppCompatActivity {
             return;
         }
 
-        isRecording = true;
-
         if (videoCapture == null) {
             Log.e("VIDEO_DEBUG", "VideoCapture is not ready");
             return;
         }
+
+        isRecording = true;
 
         File videoDir = new File(
                 getExternalFilesDir(Environment.DIRECTORY_MOVIES),
@@ -280,7 +302,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
         File videoFile = new File(
                 videoDir,
-                "selfie_" + timeStamp + ".mp4"
+                subjectId + "_" + timeStamp + ".mp4"
         );
 
         FileOutputOptions outputOptions =
@@ -330,22 +352,39 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
                                 });
 
-                                new Handler(Looper.getMainLooper()).postDelayed(
-                                        () -> {
 
-                                            if (recording != null) {
+                                new CountDownTimer(5000, 1000) {
 
-                                                Log.d(
-                                                        "VIDEO_DEBUG",
-                                                        "5 seconds reached - stopping recording"
-                                                );
+                                    @Override
+                                    public void onTick(long millisUntilFinished) {
 
-                                                recording.stop();
-                                            }
+                                        int seconds =
+                                                (int) Math.ceil(millisUntilFinished / 1000.0);
 
-                                        },
-                                        5000
-                                );
+                                        countdownText.setVisibility(View.VISIBLE);
+
+                                        countdownText.setText(
+                                                "Recording: " + seconds
+                                        );
+                                    }
+
+                                    @Override
+                                    public void onFinish() {
+
+                                        countdownText.setVisibility(View.GONE);
+
+                                        if (recording != null) {
+
+                                            Log.d(
+                                                    "VIDEO_DEBUG",
+                                                    "5 seconds reached - stopping recording"
+                                            );
+
+                                            recording.stop();
+                                        }
+                                    }
+
+                                }.start();
                             }
 
                             if (videoRecordEvent
@@ -365,21 +404,24 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
                                     runOnUiThread(() -> {
 
-                                        statusText.setText(
-                                                "Video saved"
+                                        statusText.setText("Video saved");
+
+                                        Toast.makeText(
+                                                SelfieCaptureActivity.this,
+                                                "Video saved successfully",
+                                                Toast.LENGTH_LONG
+                                        ).show();
+
+                                        startRecordingButton.setText(
+                                                "Start Recording"
                                         );
 
-                                        startRecordingButton
-                                                .setText(
-                                                        "Start Recording"
-                                                );
-
-                                        startRecordingButton
-                                                .setEnabled(true);
+                                        startRecordingButton.setEnabled(true);
 
                                     });
+                                }
 
-                                } else {
+                                 else {
 
                                     Log.e(
                                             "VIDEO_DEBUG",
@@ -390,6 +432,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                 }
 
                                 recording = null;
+                                isRecording = false;
                             }
                         }
                 );
@@ -405,7 +448,6 @@ public class SelfieCaptureActivity extends AppCompatActivity {
             );
 
             recording.stop();
-            recording = null;
 
             startRecordingButton.setText(
                     "Start Recording"
@@ -579,12 +621,31 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                         faceWidth <= maxFaceWidth;
 
                         boolean ready = faceCenterInsideGuide && centered && goodDistance;
+                        faceReady = ready;
+                        if (isRecording) {
+                            faceWasGoodDuringRecording = ready;
+                        }
 
                         // Display the result
 
                         runOnUiThread(() -> {
 
-                            if (ready) {
+                            if (isRecording) {
+
+                                if (ready) {
+
+                                    statusText.setText(
+                                            "Recording - Hold still"
+                                    );
+
+                                } else {
+
+                                    statusText.setText(
+                                            "Please hold still and stay in the guide"
+                                    );
+                                }
+
+                            } else if (ready) {
 
                                 statusText.setText(
                                         "Ready - Hold still"

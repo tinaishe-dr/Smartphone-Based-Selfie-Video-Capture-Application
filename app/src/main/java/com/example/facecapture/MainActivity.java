@@ -17,8 +17,11 @@ import androidx.camera.core.Camera;
 import com.google.mlkit.vision.common.InputImage;
 
 import android.os.Bundle;
+import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
@@ -40,8 +43,14 @@ public class MainActivity extends AppCompatActivity {
     private PreviewView cameraPreview;
     private PreviewView barcodePreview;
     private Button continueButton;
+    private View scanLine;
+    private View barcodeOverlay;
+    private View scannerBox;
+    private TextView scanInstruction;
+    private FrameLayout barcodeScannerContainer;
     private boolean barcodeScanned = false;
     private ImageAnalysis barcodeImageAnalysis;
+    private ProcessCameraProvider cameraProvider;
 
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int BARCODE_PERMISSION_CODE = 101;
@@ -52,39 +61,53 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         subjectIdInput = findViewById(R.id.subjectIdInput);
-        startCaptureButton = findViewById(R.id.startCaptureButton);
+        //startCaptureButton = findViewById(R.id.startCaptureButton);
         startScanButton = findViewById(R.id.startScanButton);
-        cameraPreview = findViewById(R.id.cameraPreview);
+        //cameraPreview = findViewById(R.id.cameraPreview);
         barcodePreview = findViewById(R.id.barcodePreview);
         continueButton = findViewById(R.id.continueButton);
+        barcodeOverlay = findViewById(R.id.barcodeOverlay);
+        scannerBox = findViewById(R.id.scannerBox);
+        scanLine = findViewById(R.id.scanLine);
+        scanInstruction = findViewById(R.id.scanInstruction);
+        barcodeScannerContainer = findViewById(R.id.barcodeScannerContainer);
+        barcodeScannerContainer.setVisibility(View.GONE);
 
-        startCaptureButton.setOnClickListener(v ->
-        {
-            String subjectId = subjectIdInput.getText().toString().trim();
+        startScanAnimation();
 
-            if (subjectId.isEmpty()) {
-
-                Toast.makeText(
-                        MainActivity.this,
-                        "Please enter Subject ID",
-                        Toast.LENGTH_SHORT
-                ).show();
-
-                return;
-            }
-            String filename = generateFileName(subjectId);
-
-            Toast.makeText(
-                    MainActivity.this,
-                    "Preparing Capture: " + subjectId + "\nFilename: " + filename,
-                    Toast.LENGTH_SHORT
-            ).show();
-            checkCameraPermission();
-            startCamera();
-        });
+//        startCaptureButton.setOnClickListener(v ->
+//        {
+//            String subjectId = subjectIdInput.getText().toString().trim();
+//
+//            if (subjectId.isEmpty()) {
+//
+//                Toast.makeText(
+//                        MainActivity.this,
+//                        "Please enter Subject ID",
+//                        Toast.LENGTH_SHORT
+//                ).show();
+//
+//                return;
+//            }
+//            String filename = generateFileName(subjectId);
+//
+//            Toast.makeText(
+//                    MainActivity.this,
+//                    "Preparing Capture: " + subjectId + "\nFilename: " + filename,
+//                    Toast.LENGTH_SHORT
+//            ).show();
+//            checkCameraPermission();
+//            startCamera();
+//        });
 
         startScanButton.setOnClickListener(v -> {
+
             barcodeScanned = false;
+
+            barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+            startScanButton.setText("Scanning...");
+
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.CAMERA
@@ -127,6 +150,30 @@ public class MainActivity extends AppCompatActivity {
             intent.putExtra("SUBJECT_ID", subjectId);
 
             startActivity(intent);
+        });
+    }
+
+    private void startScanAnimation() {
+
+        scanLine.post(() -> {
+
+            float distance =
+                    scannerBox.getHeight() -
+                            scanLine.getHeight();
+
+            scanLine.animate()
+                    .translationY(distance)
+                    .setDuration(1500)
+                    .withEndAction(() -> {
+
+                        scanLine.animate()
+                                .translationY(0)
+                                .setDuration(1500)
+                                .withEndAction(this::startScanAnimation)
+                                .start();
+
+                    })
+                    .start();
         });
     }
 
@@ -224,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
 
             try {
 
-                ProcessCameraProvider cameraProvider =
+                cameraProvider =
                         cameraProviderFuture.get();
 
                 Preview preview =
@@ -263,6 +310,7 @@ public class MainActivity extends AppCompatActivity {
                         preview,
                         barcodeImageAnalysis
                 );
+                startScanAnimation();
 
             } catch (Exception e) {
 
@@ -306,7 +354,25 @@ public class MainActivity extends AppCompatActivity {
                             barcodeScanned = true;
 
                             subjectIdInput.setText(rawValue);
-                            barcodeImageAnalysis.clearAnalyzer();
+
+                            // Stop barcode analysis
+                            if (barcodeImageAnalysis != null) {
+                                barcodeImageAnalysis.clearAnalyzer();
+                            }
+
+                            // Stop scan-line animation
+                            scanLine.animate().cancel();
+
+                            // Hide scanner UI
+                            barcodeScannerContainer.setVisibility(View.GONE);
+
+                            // Stop camera
+                            if (cameraProvider != null) {
+                                cameraProvider.unbindAll();
+                            }
+
+                            // Change button
+                            startScanButton.setText("Scan Again");
 
                             Toast.makeText(
                                     this,
