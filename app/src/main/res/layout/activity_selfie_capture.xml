@@ -61,4 +61,11 @@
         android:layout_height="wrap_content"
         android:text="Start Recording" />
 
+    <Button
+        android:id="@+id/backButton"
+        android:layout_gravity="center"
+        android:layout_width="150dp"
+        android:layout_height="wrap_content"
+        android:text="Next Subject" />
+
 </LinearLayout>

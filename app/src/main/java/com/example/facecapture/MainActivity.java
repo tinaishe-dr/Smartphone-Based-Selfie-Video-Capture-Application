@@ -104,18 +104,32 @@ public class MainActivity extends AppCompatActivity {
 
             barcodeScanned = false;
 
-            barcodeScannerContainer.setVisibility(View.VISIBLE);
-
-            startScanButton.setText("Scanning...");
-
             if (ContextCompat.checkSelfPermission(
                     this,
                     Manifest.permission.CAMERA
             ) == PackageManager.PERMISSION_GRANTED) {
 
+                barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+                scanInstruction.setText(
+                        "Place barcode inside the box"
+                );
+
+                startScanButton.setText("Scanning...");
+
                 startBarcodeScanner();
 
             } else {
+
+                // Keep scanner UI visible
+                barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+                // Tell user why scanning cannot start
+                scanInstruction.setText(
+                        "Camera permission required"
+                );
+
+                startScanButton.setText("Scan Barcode");
 
                 ActivityCompat.requestPermissions(
                         this,
@@ -207,27 +221,58 @@ public class MainActivity extends AppCompatActivity {
             int requestCode,
             String[] permissions,
             int[] grantResults) {
+
         super.onRequestPermissionsResult(
                 requestCode,
                 permissions,
-                grantResults);
+                grantResults
+        );
+
         if (requestCode == CAMERA_PERMISSION_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+            if (grantResults.length > 0 &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
                 startCamera();
+
             } else {
-                if (!ActivityCompat.shouldShowRequestPermissionRationale(
+
+                Toast.makeText(
                         this,
-                        Manifest.permission.CAMERA
-                )) {
-                    Toast.makeText(this,
-                            "Camera permission disabled. Enable it in Settings", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this,
-                            "Camera permission denied", Toast.LENGTH_SHORT).show();
-                }
+                        "Camera permission denied",
+                        Toast.LENGTH_SHORT
+                ).show();
             }
         }
 
+        if (requestCode == BARCODE_PERMISSION_CODE) {
+
+            if (grantResults.length > 0 &&
+                    grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+
+                // Permission granted
+                barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+                scanInstruction.setText(
+                        "Place barcode inside the box"
+                );
+
+                startScanButton.setText("Scanning...");
+
+                startBarcodeScanner();
+
+            } else {
+
+                // Permission denied
+                barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+                scanInstruction.setText(
+                        "Camera permission required"
+                );
+
+                startScanButton.setText("Scan Barcode");
+            }
+        }
     }
 
     private void startCamera() {
