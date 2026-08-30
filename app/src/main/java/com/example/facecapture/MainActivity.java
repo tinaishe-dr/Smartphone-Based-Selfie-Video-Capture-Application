@@ -20,6 +20,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -46,8 +47,10 @@ public class MainActivity extends AppCompatActivity {
     private View barcodeOverlay;
     private View scannerBox;
     private TextView scanInstruction;
+    private FrameLayout barcodeScannerContainer;
     private boolean barcodeScanned = false;
     private ImageAnalysis barcodeImageAnalysis;
+    private ProcessCameraProvider cameraProvider;
 
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int BARCODE_PERMISSION_CODE = 101;
@@ -67,6 +70,8 @@ public class MainActivity extends AppCompatActivity {
         scannerBox = findViewById(R.id.scannerBox);
         scanLine = findViewById(R.id.scanLine);
         scanInstruction = findViewById(R.id.scanInstruction);
+        barcodeScannerContainer = findViewById(R.id.barcodeScannerContainer);
+        barcodeScannerContainer.setVisibility(View.GONE);
 
         startScanAnimation();
 
@@ -99,12 +104,9 @@ public class MainActivity extends AppCompatActivity {
 
             barcodeScanned = false;
 
-            // Show scanner UI
-            barcodeOverlay.setVisibility(View.VISIBLE);
-            scannerBox.setVisibility(View.VISIBLE);
-            scanInstruction.setVisibility(View.VISIBLE);
+            barcodeScannerContainer.setVisibility(View.VISIBLE);
 
-            startScanAnimation();
+            startScanButton.setText("Scanning...");
 
             if (ContextCompat.checkSelfPermission(
                     this,
@@ -156,8 +158,8 @@ public class MainActivity extends AppCompatActivity {
         scanLine.post(() -> {
 
             float distance =
-                    ((View) scanLine.getParent()).getHeight()
-                            - scanLine.getHeight();
+                    scannerBox.getHeight() -
+                            scanLine.getHeight();
 
             scanLine.animate()
                     .translationY(distance)
@@ -269,7 +271,7 @@ public class MainActivity extends AppCompatActivity {
 
             try {
 
-                ProcessCameraProvider cameraProvider =
+                cameraProvider =
                         cameraProviderFuture.get();
 
                 Preview preview =
@@ -308,6 +310,7 @@ public class MainActivity extends AppCompatActivity {
                         preview,
                         barcodeImageAnalysis
                 );
+                startScanAnimation();
 
             } catch (Exception e) {
 
@@ -352,6 +355,7 @@ public class MainActivity extends AppCompatActivity {
 
                             subjectIdInput.setText(rawValue);
 
+                            // Stop barcode analysis
                             if (barcodeImageAnalysis != null) {
                                 barcodeImageAnalysis.clearAnalyzer();
                             }
@@ -360,9 +364,15 @@ public class MainActivity extends AppCompatActivity {
                             scanLine.animate().cancel();
 
                             // Hide scanner UI
-                            barcodeOverlay.setVisibility(View.GONE);
-                            scannerBox.setVisibility(View.GONE);
-                            scanInstruction.setVisibility(View.GONE);
+                            barcodeScannerContainer.setVisibility(View.GONE);
+
+                            // Stop camera
+                            if (cameraProvider != null) {
+                                cameraProvider.unbindAll();
+                            }
+
+                            // Change button
+                            startScanButton.setText("Scan Again");
 
                             Toast.makeText(
                                     this,
