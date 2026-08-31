@@ -3,18 +3,34 @@ package com.example.facecapture;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.os.Bundle;
-
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.CountDownTimer;
+import android.os.ParcelFileDescriptor;
+import android.os.StatFs;
+import android.provider.Settings;
+import android.view.View;
+import android.widget.Button;
 import android.widget.TextView;
+import android.widget.Toast;
+import android.util.Log;
+
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.core.ImageAnalysis;
+import androidx.camera.core.ImageProxy;
+import androidx.camera.core.CameraSelector;
+import androidx.camera.core.Preview;
+import androidx.camera.lifecycle.ProcessCameraProvider;
+import androidx.camera.view.PreviewView;
 
 import androidx.camera.view.transform.CoordinateTransform;
 import androidx.camera.view.transform.ImageProxyTransformFactory;
 import androidx.camera.view.transform.OutputTransform;
-import android.graphics.Matrix;
 
+import androidx.camera.video.FileDescriptorOutputOptions;
 import androidx.camera.video.FileOutputOptions;
 import androidx.camera.video.Quality;
 import androidx.camera.video.QualitySelector;
@@ -24,54 +40,46 @@ import androidx.camera.video.VideoCapture;
 import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.video.PendingRecording;
 
-import android.os.Environment;
-import java.io.File;
-import java.text.SimpleDateFormat;
-import java.util.Date;
-import java.util.Locale;
-import android.view.MotionEvent;
+import androidx.core.content.ContextCompat;
 
-import androidx.camera.core.ImageAnalysis;
-import androidx.camera.core.ImageProxy;
-import android.graphics.RectF;
+import androidx.documentfile.provider.DocumentFile;
+
+import com.google.common.util.concurrent.ListenableFuture;
 
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.face.Face;
-import android.graphics.Rect;
 import com.google.mlkit.vision.face.FaceDetection;
 import com.google.mlkit.vision.face.FaceDetector;
 import com.google.mlkit.vision.face.FaceDetectorOptions;
 
-import androidx.camera.core.CameraSelector;
-import androidx.camera.core.Preview;
-import androidx.camera.lifecycle.ProcessCameraProvider;
-import androidx.core.content.ContextCompat;
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.RectF;
 
-import com.google.common.util.concurrent.ListenableFuture;
-
-import androidx.activity.EdgeToEdge;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.camera.view.PreviewView;
-import androidx.core.graphics.Insets;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
-
-import android.util.Log;
-import android.view.View;
-import android.widget.TextView;
-import android.widget.Toast;
-import android.widget.Button;
+import java.io.File;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.Locale;
 
 public class SelfieCaptureActivity extends AppCompatActivity {
+
     private TextView subjectIdText;
     private PreviewView selfiePreview;
     private FaceDetector faceDetector;
     private TextView statusText;
     private View faceGuide;
+
     private VideoCapture<Recorder> videoCapture;
     private Recording recording;
+
     private Button startRecordingButton;
     private TextView countdownText;
+    private Button backButton;
+
+    // Storage UI
+    private TextView storageDirectoryText;
+    private TextView storageSpaceText;
+    private Button changeStorageButton;
 
     private CountDownTimer countdownTimer;
 
@@ -79,14 +87,25 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     private boolean isRecording = false;
     private boolean faceReady = false;
     private boolean faceWasGoodDuringRecording = true;
+
     private String subjectId;
-    private Button backButton;
+
+    private static final int STORAGE_PERMISSION_CODE = 200;
+
+    private static final String PREFS_NAME =
+            "storage_preferences";
+
+    private static final String STORAGE_URI_KEY =
+            "storage_uri";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
 
         super.onCreate(savedInstanceState);
+
         setContentView(R.layout.activity_selfie_capture);
+
+        // Existing UI
         statusText = findViewById(R.id.statusText);
         subjectIdText = findViewById(R.id.subjectIdText);
         selfiePreview = findViewById(R.id.selfiePreview);
@@ -95,19 +114,42 @@ public class SelfieCaptureActivity extends AppCompatActivity {
         countdownText = findViewById(R.id.countdownText);
         backButton = findViewById(R.id.backButton);
 
+        // New storage UI
+        storageDirectoryText = findViewById(R.id.storageDirectoryText);
+
+        storageSpaceText = findViewById(R.id.storageSpaceText);
+
+        changeStorageButton = findViewById(R.id.changeStorageButton);
+
+
+        // Back button
         backButton.setOnClickListener(v -> {
+
             Intent intent = new Intent(
                     SelfieCaptureActivity.this,
                     MainActivity.class
             );
+
             startActivity(intent);
+
+            finish();
+        });
+
+
+        // Change storage directory
+        changeStorageButton.setOnClickListener(v -> {
+
+            openStorageDirectoryPicker();
 
         });
 
 
+        // Start recording button
         startRecordingButton.setOnClickListener(v -> {
 
-            if (recording == null && !isCountdownRunning && !isRecording) {
+            if (recording == null &&
+                    !isCountdownRunning &&
+                    !isRecording) {
 
                 if (faceReady) {
 
@@ -129,10 +171,13 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
         });
 
+
+        // Subject ID
         subjectId = getIntent()
                 .getStringExtra("SUBJECT_ID");
 
         if (subjectId == null || subjectId.isEmpty()) {
+
             subjectId = "UNKNOWN";
         }
 
@@ -140,10 +185,17 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                 "Subject: " + subjectId
         );
 
+
+        // Display storage information
+        updateStorageInformation();
+
+
+        // Start camera
         if (ContextCompat.checkSelfPermission(
                 this,
                 Manifest.permission.CAMERA
         ) == PackageManager.PERMISSION_GRANTED) {
+
             FaceDetectorOptions options =
                     new FaceDetectorOptions.Builder()
                             .setPerformanceMode(
@@ -151,11 +203,300 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                             )
                             .build();
 
-            faceDetector = FaceDetection.getClient(options);
+            faceDetector =
+                    FaceDetection.getClient(options);
 
             startSelfieCamera();
+
+        } else {
+
+            Toast.makeText(
+                    this,
+                    "Camera permission is required",
+                    Toast.LENGTH_LONG
+            ).show();
         }
     }
+
+
+    // =========================================================
+    // STORAGE DIRECTORY PICKER
+    // =========================================================
+
+    private void openStorageDirectoryPicker() {
+
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                STORAGE_PERMISSION_CODE
+        );
+    }
+
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (requestCode == STORAGE_PERMISSION_CODE &&
+                resultCode == RESULT_OK &&
+                data != null) {
+
+            Uri treeUri =
+                    data.getData();
+
+            if (treeUri != null) {
+
+                try {
+
+                    final int takeFlags =
+                            data.getFlags()
+                                    &
+                                    (Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+                    getContentResolver()
+                            .takePersistableUriPermission(
+                                    treeUri,
+                                    takeFlags
+                            );
+
+                } catch (Exception e) {
+
+                    Log.e(
+                            "STORAGE_DEBUG",
+                            "Could not persist storage permission",
+                            e
+                    );
+                }
+
+
+                // Save selected directory
+                getSharedPreferences(
+                        PREFS_NAME,
+                        MODE_PRIVATE
+                )
+                        .edit()
+                        .putString(
+                                STORAGE_URI_KEY,
+                                treeUri.toString()
+                        )
+                        .apply();
+
+
+                updateStorageInformation();
+
+
+                Toast.makeText(
+                        this,
+                        "Storage directory changed",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        }
+    }
+
+
+    // =========================================================
+    // STORAGE INFORMATION
+    // =========================================================
+
+    private void updateStorageInformation() {
+
+        // Display directory
+        String storageLocation =
+                getStorageLocationDescription();
+
+        storageDirectoryText.setText(
+                "Location: " + storageLocation
+        );
+
+
+        // Display phone storage
+        String storageInfo =
+                getPhoneStorageInformation();
+
+        storageSpaceText.setText(
+                storageInfo
+        );
+    }
+
+
+    private String getStorageLocationDescription() {
+
+        String savedUri =
+                getSharedPreferences(
+                        PREFS_NAME,
+                        MODE_PRIVATE
+                )
+                        .getString(
+                                STORAGE_URI_KEY,
+                                null
+                        );
+
+
+        // No custom directory
+        if (savedUri == null) {
+
+            File defaultDirectory =
+                    new File(
+                            getExternalFilesDir(
+                                    Environment.DIRECTORY_MOVIES
+                            ),
+                            "FaceCapture"
+                    );
+
+            return defaultDirectory
+                    .getAbsolutePath();
+        }
+
+
+        try {
+
+            Uri uri =
+                    Uri.parse(savedUri);
+
+            DocumentFile directory =
+                    DocumentFile.fromTreeUri(
+                            this,
+                            uri
+                    );
+
+            if (directory != null) {
+
+                String name =
+                        directory.getName();
+
+                if (name != null) {
+
+                    return name;
+                }
+            }
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "STORAGE_DEBUG",
+                    "Unable to read storage directory",
+                    e
+            );
+        }
+
+        return savedUri;
+    }
+
+
+    // =========================================================
+    // PHONE STORAGE
+    // =========================================================
+
+    private String getPhoneStorageInformation() {
+
+        try {
+
+            File storage =
+                    Environment.getExternalStorageDirectory();
+
+            StatFs statFs =
+                    new StatFs(
+                            storage.getPath()
+                    );
+
+            long blockSize =
+                    statFs.getBlockSizeLong();
+
+            long totalBlocks =
+                    statFs.getBlockCountLong();
+
+            long availableBlocks =
+                    statFs.getAvailableBlocksLong();
+
+            long totalBytes =
+                    totalBlocks * blockSize;
+
+            long availableBytes =
+                    availableBlocks * blockSize;
+
+            long usedBytes =
+                    totalBytes - availableBytes;
+
+
+            return "Phone storage: "
+                    + formatStorageSize(usedBytes)
+                    + " Used / "
+                    + formatStorageSize(totalBytes)
+                    + "\nTotal: "
+                    + formatStorageSize(availableBytes)
+                    + " Free";
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "STORAGE_DEBUG",
+                    "Unable to read storage information",
+                    e
+            );
+
+            return "Storage information unavailable";
+        }
+    }
+
+
+    private String formatStorageSize(long bytes) {
+
+        if (bytes <= 0) {
+            return "0 B";
+        }
+
+        double value = bytes;
+
+        String[] units = {
+                "B",
+                "KB",
+                "MB",
+                "GB",
+                "TB"
+        };
+
+        int unitIndex = 0;
+
+        while (value >= 1024 &&
+                unitIndex < units.length - 1) {
+
+            value /= 1024;
+
+            unitIndex++;
+        }
+
+        return String.format(
+                Locale.US,
+                "%.1f %s",
+                value,
+                units[unitIndex]
+        );
+    }
+
+
+    // =========================================================
+    // COUNTDOWN
+    // =========================================================
+
     private void startCountdown() {
 
         if (isCountdownRunning || isRecording) {
@@ -164,126 +505,172 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
         isCountdownRunning = true;
 
-        countdownText.setVisibility(View.VISIBLE);
+        countdownText.setVisibility(
+                View.VISIBLE
+        );
 
-        countdownTimer = new CountDownTimer(3000, 1000) {
+        countdownTimer =
+                new CountDownTimer(
+                        3000,
+                        1000
+                ) {
 
-            @Override
-            public void onTick(long millisUntilFinished) {
+                    @Override
+                    public void onTick(
+                            long millisUntilFinished) {
 
-                int seconds =
-                        (int) Math.ceil(millisUntilFinished / 1000.0);
+                        int seconds =
+                                (int) Math.ceil(
+                                        millisUntilFinished / 1000.0
+                                );
 
-                countdownText.setText(String.valueOf(seconds));
-            }
+                        countdownText.setText(
+                                String.valueOf(seconds)
+                        );
+                    }
 
-            @Override
-            public void onFinish() {
 
-                countdownText.setText("GO!");
+                    @Override
+                    public void onFinish() {
 
-                isCountdownRunning = false;
+                        countdownText.setText(
+                                "GO!"
+                        );
 
-                startRecording();
+                        isCountdownRunning = false;
 
-                countdownText.postDelayed(() -> {
-                    countdownText.setVisibility(View.GONE);
-                }, 500);
-            }
+                        startRecording();
 
-        }.start();
+                        countdownText.postDelayed(
+                                () -> countdownText.setVisibility(
+                                        View.GONE
+                                ),
+                                500
+                        );
+                    }
+
+                }.start();
     }
+
+
+    // =========================================================
+    // CAMERA
+    // =========================================================
 
     private void startSelfieCamera() {
 
-        ListenableFuture<ProcessCameraProvider> cameraProviderFuture =
-                ProcessCameraProvider.getInstance(this);
-
-        cameraProviderFuture.addListener(() -> {
-
-            try {
-
-                ProcessCameraProvider cameraProvider =
-                        cameraProviderFuture.get();
-
-                // Camera preview
-                Preview preview = new Preview.Builder().build();
-
-                preview.setSurfaceProvider(
-                        selfiePreview.getSurfaceProvider()
+        ListenableFuture<ProcessCameraProvider>
+                cameraProviderFuture =
+                ProcessCameraProvider.getInstance(
+                        this
                 );
 
-                // Add the Recorder
-                QualitySelector qualitySelector =
-                        QualitySelector.from(Quality.HD);
+        cameraProviderFuture.addListener(
+                () -> {
 
-                Recorder recorder =
-                        new Recorder.Builder()
-                                .setQualitySelector(qualitySelector)
-                                .build();
+                    try {
 
-                videoCapture =
-                        VideoCapture.withOutput(recorder);
+                        ProcessCameraProvider cameraProvider =
+                                cameraProviderFuture.get();
 
-                // Image analysis
-                ImageAnalysis imageAnalysis =
-                        new ImageAnalysis.Builder()
-                                .setBackpressureStrategy(
-                                        ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST
-                                )
-                                .build();
 
-                // Analyzer
-                imageAnalysis.setAnalyzer(
-                        ContextCompat.getMainExecutor(this),
-                        imageProxy -> {
+                        Preview preview =
+                                new Preview.Builder()
+                                        .build();
 
-                            Log.d(
-                                    "FACE_DEBUG",
-                                    "Frame received"
-                            );
+                        preview.setSurfaceProvider(
+                                selfiePreview
+                                        .getSurfaceProvider()
+                        );
 
-                            processFaceImage(imageProxy);
-                        }
-                );
 
-                // Front camera
-                CameraSelector cameraSelector =
-                        new CameraSelector.Builder()
-                                .requireLensFacing(
-                                        CameraSelector.LENS_FACING_FRONT
-                                )
-                                .build();
+                        QualitySelector qualitySelector =
+                                QualitySelector.from(
+                                        Quality.HD
+                                );
 
-                // Remove previous camera bindings
-                cameraProvider.unbindAll();
+                        Recorder recorder =
+                                new Recorder.Builder()
+                                        .setQualitySelector(
+                                                qualitySelector
+                                        )
+                                        .build();
 
-                // Bind camera preview, analysis, and video capture
-                cameraProvider.bindToLifecycle(
-                        this,
-                        cameraSelector,
-                        preview,
-                        imageAnalysis,
-                        videoCapture
-                );
+                        videoCapture =
+                                VideoCapture.withOutput(
+                                        recorder
+                                );
 
-            } catch (Exception e) {
 
-                Log.e(
-                        "FACE_DEBUG",
-                        "Camera startup failed",
-                        e
-                );
+                        ImageAnalysis imageAnalysis =
+                                new ImageAnalysis.Builder()
+                                        .setBackpressureStrategy(
+                                                ImageAnalysis
+                                                        .STRATEGY_KEEP_ONLY_LATEST
+                                        )
+                                        .build();
 
-                Toast.makeText(
-                        this,
-                        "Unable to start selfie camera",
-                        Toast.LENGTH_SHORT
-                ).show();
-            }
 
-        }, ContextCompat.getMainExecutor(this));
+                        imageAnalysis.setAnalyzer(
+                                ContextCompat.getMainExecutor(
+                                        this
+                                ),
+                                imageProxy -> {
+
+                                    processFaceImage(
+                                            imageProxy
+                                    );
+                                }
+                        );
+
+
+                        CameraSelector cameraSelector =
+                                new CameraSelector.Builder()
+                                        .requireLensFacing(
+                                                CameraSelector
+                                                        .LENS_FACING_FRONT
+                                        )
+                                        .build();
+
+
+                        cameraProvider.unbindAll();
+
+
+                        cameraProvider.bindToLifecycle(
+                                this,
+                                cameraSelector,
+                                preview,
+                                imageAnalysis,
+                                videoCapture
+                        );
+
+
+                    } catch (Exception e) {
+
+                        Log.e(
+                                "FACE_DEBUG",
+                                "Camera startup failed",
+                                e
+                        );
+
+                        Toast.makeText(
+                                this,
+                                "Unable to start selfie camera",
+                                Toast.LENGTH_SHORT
+                        ).show();
+                    }
+
+                },
+                ContextCompat.getMainExecutor(
+                        this
+                )
+        );
     }
+
+
+    // =========================================================
+    // START RECORDING
+    // =========================================================
 
     private void startRecording() {
 
@@ -292,56 +679,253 @@ public class SelfieCaptureActivity extends AppCompatActivity {
         }
 
         if (videoCapture == null) {
-            Log.e("VIDEO_DEBUG", "VideoCapture is not ready");
+
+            Log.e(
+                    "VIDEO_DEBUG",
+                    "VideoCapture is not ready"
+            );
+
             return;
         }
 
         isRecording = true;
 
-        File videoDir = new File(
-                getExternalFilesDir(Environment.DIRECTORY_MOVIES),
-                "FaceCapture"
-        );
 
-        if (!videoDir.exists()) {
-            videoDir.mkdirs();
-        }
+        String savedUri =
+                getSharedPreferences(
+                        PREFS_NAME,
+                        MODE_PRIVATE
+                )
+                        .getString(
+                                STORAGE_URI_KEY,
+                                null
+                        );
+
 
         String timeStamp =
                 new SimpleDateFormat(
                         "yyyyMMdd_HHmmss",
                         Locale.US
-                ).format(new Date());
+                ).format(
+                        new Date()
+                );
 
-        File videoFile = new File(
-                videoDir,
-                subjectId + "_" + timeStamp + ".mp4"
-        );
+        String fileName =
+                subjectId +
+                        "_" +
+                        timeStamp +
+                        ".mp4";
+
+
+        // =====================================================
+        // CUSTOM DIRECTORY SELECTED
+        // =====================================================
+
+        if (savedUri != null) {
+
+            startRecordingToSelectedDirectory(
+                    Uri.parse(savedUri),
+                    fileName
+            );
+
+            return;
+        }
+
+
+        // =====================================================
+        // DEFAULT DIRECTORY
+        // =====================================================
+
+        File videoDir =
+                new File(
+                        getExternalFilesDir(
+                                Environment.DIRECTORY_MOVIES
+                        ),
+                        "FaceCapture"
+                );
+
+
+        if (!videoDir.exists()) {
+
+            boolean created =
+                    videoDir.mkdirs();
+
+            if (!created) {
+
+                Log.e(
+                        "VIDEO_DEBUG",
+                        "Could not create video directory"
+                );
+            }
+        }
+
+
+        File videoFile =
+                new File(
+                        videoDir,
+                        fileName
+                );
+
 
         FileOutputOptions outputOptions =
-                new FileOutputOptions.Builder(videoFile)
-                        .build();
+                new FileOutputOptions.Builder(
+                        videoFile
+                ).build();
 
-        PendingRecording pendingRecording =
-                videoCapture.getOutput()
+
+        beginRecording(
+                videoCapture
+                        .getOutput()
                         .prepareRecording(
                                 this,
                                 outputOptions
-                        );
+                        ),
+                videoFile.getAbsolutePath()
+        );
+    }
 
-//        if (ContextCompat.checkSelfPermission(
-//                this,
-//                Manifest.permission.RECORD_AUDIO
-//        ) == PackageManager.PERMISSION_GRANTED) {
-//
-//            pendingRecording =
-//                    pendingRecording.withAudioEnabled();
-//        }
+
+    // =========================================================
+    // RECORD TO USER SELECTED DIRECTORY
+    // =========================================================
+
+    private void startRecordingToSelectedDirectory(
+            Uri treeUri,
+            String fileName) {
+
+        try {
+
+            DocumentFile directory =
+                    DocumentFile.fromTreeUri(
+                            this,
+                            treeUri
+                    );
+
+
+            if (directory == null ||
+                    !directory.canWrite()) {
+
+                Toast.makeText(
+                        this,
+                        "Selected directory cannot be written to",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                isRecording = false;
+
+                return;
+            }
+
+
+            DocumentFile videoFile =
+                    directory.createFile(
+                            "video/mp4",
+                            fileName
+                    );
+
+
+            if (videoFile == null) {
+
+                Toast.makeText(
+                        this,
+                        "Could not create video file",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                isRecording = false;
+
+                return;
+            }
+
+
+            ParcelFileDescriptor pfd =
+                    getContentResolver()
+                            .openFileDescriptor(
+                                    videoFile.getUri(),
+                                    "w"
+                            );
+
+
+            if (pfd == null) {
+
+                Toast.makeText(
+                        this,
+                        "Could not open video file",
+                        Toast.LENGTH_LONG
+                ).show();
+
+                isRecording = false;
+
+                return;
+            }
+
+
+            FileDescriptorOutputOptions
+                    outputOptions =
+                    new FileDescriptorOutputOptions.Builder(
+                            pfd
+                    ).build();
+
+
+            PendingRecording pendingRecording =
+                    videoCapture
+                            .getOutput()
+                            .prepareRecording(
+                                    this,
+                                    outputOptions
+                            );
+
+
+            beginRecording(
+                    pendingRecording,
+                    videoFile.getName()
+            );
+
+
+            // The descriptor must remain open while recording.
+            // It is closed after Finalize.
+
+            videoFileDescriptor = pfd;
+
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "VIDEO_DEBUG",
+                    "Could not prepare selected storage",
+                    e
+            );
+
+            isRecording = false;
+
+            Toast.makeText(
+                    this,
+                    "Unable to use selected directory",
+                    Toast.LENGTH_LONG
+            ).show();
+        }
+    }
+
+
+    private ParcelFileDescriptor videoFileDescriptor;
+
+
+    // =========================================================
+    // COMMON RECORDING LOGIC
+    // =========================================================
+
+    private void beginRecording(
+            PendingRecording pendingRecording,
+            String filePath) {
+
 
         recording =
                 pendingRecording.start(
-                        ContextCompat.getMainExecutor(this),
+                        ContextCompat.getMainExecutor(
+                                this
+                        ),
                         videoRecordEvent -> {
+
 
                             if (videoRecordEvent
                                     instanceof VideoRecordEvent.Start) {
@@ -351,40 +935,59 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                         "Recording started"
                                 );
 
+
                                 runOnUiThread(() -> {
 
                                     startRecordingButton
-                                            .setText("Recording...");
+                                            .setText(
+                                                    "Recording..."
+                                            );
 
                                     startRecordingButton
-                                            .setEnabled(false);
+                                            .setEnabled(
+                                                    false
+                                            );
 
                                     statusText.setText(
                                             "Recording..."
                                     );
-
                                 });
 
 
-                                new CountDownTimer(5000, 1000) {
+                                new CountDownTimer(
+                                        5000,
+                                        1000
+                                ) {
 
                                     @Override
-                                    public void onTick(long millisUntilFinished) {
+                                    public void onTick(
+                                            long millisUntilFinished) {
 
                                         int seconds =
-                                                (int) Math.ceil(millisUntilFinished / 1000.0);
+                                                (int) Math.ceil(
+                                                        millisUntilFinished
+                                                                / 1000.0
+                                                );
 
-                                        countdownText.setVisibility(View.VISIBLE);
+                                        countdownText
+                                                .setVisibility(
+                                                        View.VISIBLE
+                                                );
 
                                         countdownText.setText(
-                                                "Recording: " + seconds
+                                                "Recording: "
+                                                        + seconds
                                         );
                                     }
+
 
                                     @Override
                                     public void onFinish() {
 
-                                        countdownText.setVisibility(View.GONE);
+                                        countdownText
+                                                .setVisibility(
+                                                        View.GONE
+                                                );
 
                                         if (recording != null) {
 
@@ -400,24 +1003,31 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                 }.start();
                             }
 
+
                             if (videoRecordEvent
                                     instanceof VideoRecordEvent.Finalize) {
 
-                                VideoRecordEvent.Finalize finalizeEvent =
+                                VideoRecordEvent.Finalize
+                                        finalizeEvent =
                                         (VideoRecordEvent.Finalize)
                                                 videoRecordEvent;
+
 
                                 if (!finalizeEvent.hasError()) {
 
                                     Log.d(
                                             "VIDEO_DEBUG",
                                             "Video saved: "
-                                                    + videoFile.getAbsolutePath()
+                                                    + filePath
                                     );
+
 
                                     runOnUiThread(() -> {
 
-                                        statusText.setText("Video saved");
+                                        statusText.setText(
+                                                "Video saved"
+                                        );
+
 
                                         Toast.makeText(
                                                 SelfieCaptureActivity.this,
@@ -425,16 +1035,25 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                                 Toast.LENGTH_LONG
                                         ).show();
 
-                                        startRecordingButton.setText(
-                                                "Start Recording"
-                                        );
 
-                                        startRecordingButton.setEnabled(true);
+                                        startRecordingButton
+                                                .setText(
+                                                        "Start Recording"
+                                                );
+
+                                        startRecordingButton
+                                                .setEnabled(
+                                                        true
+                                                );
+
+
+                                        // Refresh storage display
+                                        updateStorageInformation();
 
                                     });
-                                }
 
-                                 else {
+
+                                } else {
 
                                     Log.e(
                                             "VIDEO_DEBUG",
@@ -442,14 +1061,62 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                                     + finalizeEvent
                                                     .getError()
                                     );
+
+
+                                    runOnUiThread(() -> {
+
+                                        Toast.makeText(
+                                                SelfieCaptureActivity.this,
+                                                "Video recording failed",
+                                                Toast.LENGTH_LONG
+                                        ).show();
+
+                                        startRecordingButton
+                                                .setText(
+                                                        "Start Recording"
+                                                );
+
+                                        startRecordingButton
+                                                .setEnabled(
+                                                        true
+                                                );
+                                    });
                                 }
 
+
+                                // Close the selected-folder file
+                                // descriptor after recording.
+                                if (videoFileDescriptor != null) {
+
+                                    try {
+
+                                        videoFileDescriptor.close();
+
+                                    } catch (Exception e) {
+
+                                        Log.e(
+                                                "VIDEO_DEBUG",
+                                                "Could not close file descriptor",
+                                                e
+                                        );
+                                    }
+
+                                    videoFileDescriptor = null;
+                                }
+
+
                                 recording = null;
+
                                 isRecording = false;
                             }
                         }
                 );
     }
+
+
+    // =========================================================
+    // STOP RECORDING
+    // =========================================================
 
     private void stopRecording() {
 
@@ -467,179 +1134,221 @@ public class SelfieCaptureActivity extends AppCompatActivity {
             );
         }
     }
-    private void processFaceImage(ImageProxy imageProxy) {
 
-        Log.d("FACE_DEBUG", "Frame received");
+
+    // =========================================================
+    // FACE DETECTION
+    // =========================================================
+
+    private void processFaceImage(
+            ImageProxy imageProxy) {
 
         if (imageProxy.getImage() == null) {
-            Log.d("FACE_DEBUG", "Image is null");
+
             imageProxy.close();
+
             return;
         }
 
-        InputImage image = InputImage.fromMediaImage(
-                imageProxy.getImage(),
-                imageProxy.getImageInfo().getRotationDegrees()
-        );
+
+        InputImage image =
+                InputImage.fromMediaImage(
+                        imageProxy.getImage(),
+                        imageProxy.getImageInfo()
+                                .getRotationDegrees()
+                );
+
 
         faceDetector.process(image)
-                .addOnSuccessListener(faces -> {
 
-                    Log.d(
-                            "FACE_DEBUG",
-                            "Faces detected: " + faces.size()
-                    );
+                .addOnSuccessListener(faces -> {
 
                     if (faces.isEmpty()) {
 
-                        runOnUiThread(() -> {
-                            statusText.setText("No face detected");
-                        });
+                        runOnUiThread(() ->
+                                statusText.setText(
+                                        "No face detected"
+                                )
+                        );
 
                     } else if (faces.size() > 1) {
 
-                        runOnUiThread(() -> {
-                            statusText.setText("Only one person should be visible");
-                        });
+                        runOnUiThread(() ->
+                                statusText.setText(
+                                        "Only one person should be visible"
+                                )
+                        );
 
                     } else {
 
-                        // ONE FACE DETECTED
+                        Face face =
+                                faces.get(0);
 
-                        Face face = faces.get(0);
-                        Rect bounds = face.getBoundingBox();
+                        Rect bounds =
+                                face.getBoundingBox();
 
-                        int guideLeft = faceGuide.getLeft();
-                        int guideTop = faceGuide.getTop();
-                        int guideRight = faceGuide.getRight();
-                        int guideBottom = faceGuide.getBottom();
 
-                        Log.d(
-                                "GUIDE_COORD",
-                                "Guide: left=" + guideLeft +
-                                        " top=" + guideTop +
-                                        " right=" + guideRight +
-                                        " bottom=" + guideBottom
-                        );
+                        int guideLeft =
+                                faceGuide.getLeft();
+
+                        int guideTop =
+                                faceGuide.getTop();
+
+                        int guideRight =
+                                faceGuide.getRight();
+
+                        int guideBottom =
+                                faceGuide.getBottom();
+
+
                         ImageProxyTransformFactory factory =
                                 new ImageProxyTransformFactory();
 
+
                         OutputTransform imageTransform =
-                                factory.getOutputTransform(imageProxy);
+                                factory.getOutputTransform(
+                                        imageProxy
+                                );
+
 
                         OutputTransform previewTransform =
-                                selfiePreview.getOutputTransform();
+                                selfiePreview
+                                        .getOutputTransform();
 
-                        CoordinateTransform coordinateTransform =
+
+                        CoordinateTransform
+                                coordinateTransform =
                                 new CoordinateTransform(
                                         imageTransform,
                                         previewTransform
                                 );
-                        Matrix matrix = new Matrix();
 
-                        coordinateTransform.transform(matrix);
 
-                        RectF faceRect = new RectF(bounds);
-                        matrix.mapRect(faceRect);
+                        Matrix matrix =
+                                new Matrix();
 
-                        float transformedCenterX = faceRect.centerX();
-                        float transformedCenterY = faceRect.centerY();
+                        coordinateTransform.transform(
+                                matrix
+                        );
+
+
+                        RectF faceRect =
+                                new RectF(bounds);
+
+                        matrix.mapRect(
+                                faceRect
+                        );
+
+
+                        float transformedCenterX =
+                                faceRect.centerX();
+
+                        float transformedCenterY =
+                                faceRect.centerY();
+
 
                         boolean faceCenterInsideGuide =
                                 transformedCenterX >= guideLeft &&
                                         transformedCenterX <= guideRight &&
                                         transformedCenterY >= guideTop &&
                                         transformedCenterY <= guideBottom;
-                        Log.d(
-                                "GUIDE_COORD",
-                                "Face center inside guide: " + faceCenterInsideGuide
-                        );
 
-                        Log.d(
-                                "FACE_COORD",
-                                "Transformed face: " + faceRect.toString()
-                        );
-                        Log.d(
-                                "FACE_COORD",
-                                "Face bounds: " + bounds.toString()
-                        );
 
-                        Log.d(
-                                "FACE_COORD",
-                                "Image size: " +
-                                        imageProxy.getWidth() +
-                                        " x " +
-                                        imageProxy.getHeight()
-                        );
+                        int faceWidth =
+                                bounds.width();
 
-                        Log.d(
-                                "FACE_COORD",
-                                "Preview size: " +
-                                        selfiePreview.getWidth() +
-                                        " x " +
-                                        selfiePreview.getHeight()
-                        );
 
-                        int faceWidth = bounds.width();
-                        int faceHeight = bounds.height();
+                        int faceCenterX =
+                                bounds.centerX();
 
-                        int faceCenterX = bounds.centerX();
-                        int faceCenterY = bounds.centerY();
+                        int faceCenterY =
+                                bounds.centerY();
 
-                        int imageWidth = imageProxy.getWidth();
-                        int imageHeight = imageProxy.getHeight();
 
-                        int imageCenterX = imageWidth / 2;
-                        int imageCenterY = imageHeight / 2;
+                        int imageWidth =
+                                imageProxy.getWidth();
+
+                        int imageHeight =
+                                imageProxy.getHeight();
+
+
+                        int imageCenterX =
+                                imageWidth / 2;
+
+                        int imageCenterY =
+                                imageHeight / 2;
+
 
                         int differenceX =
-                                Math.abs(faceCenterX - imageCenterX);
+                                Math.abs(
+                                        faceCenterX -
+                                                imageCenterX
+                                );
+
 
                         int differenceY =
-                                Math.abs(faceCenterY - imageCenterY);
+                                Math.abs(
+                                        faceCenterY -
+                                                imageCenterY
+                                );
 
-                        int toleranceX = imageWidth / 8;
-                        int toleranceY = imageHeight / 8;
+
+                        int toleranceX =
+                                imageWidth / 8;
+
+                        int toleranceY =
+                                imageHeight / 8;
+
 
                         boolean centered =
                                 differenceX <= toleranceX &&
                                         differenceY <= toleranceY;
 
 
-                        // #4 — Check face size
-
                         int minFaceWidth = 250;
                         int maxFaceWidth = 600;
 
+
                         String distanceMessage;
+
 
                         if (faceWidth < minFaceWidth) {
 
-                            distanceMessage = "Move closer";
+                            distanceMessage =
+                                    "Move closer";
 
                         } else if (faceWidth > maxFaceWidth) {
 
-                            distanceMessage = "Move farther away";
+                            distanceMessage =
+                                    "Move farther away";
 
                         } else {
 
-                            distanceMessage = "Distance is good";
+                            distanceMessage =
+                                    "Distance is good";
                         }
 
-
-                        // #5 — Combine centering + distance
 
                         boolean goodDistance =
                                 faceWidth >= minFaceWidth &&
                                         faceWidth <= maxFaceWidth;
 
-                        boolean ready = faceCenterInsideGuide && centered && goodDistance;
+
+                        boolean ready =
+                                faceCenterInsideGuide &&
+                                        centered &&
+                                        goodDistance;
+
+
                         faceReady = ready;
+
+
                         if (isRecording) {
-                            faceWasGoodDuringRecording = ready;
+
+                            faceWasGoodDuringRecording =
+                                    ready;
                         }
 
-                        // Display the result
 
                         runOnUiThread(() -> {
 
@@ -679,6 +1388,8 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                         });
                     }
                 })
+
+
                 .addOnFailureListener(e -> {
 
                     Log.e(
@@ -686,12 +1397,57 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                             "Face detection failed",
                             e
                     );
-
                 })
+
+
                 .addOnCompleteListener(task -> {
 
                     imageProxy.close();
 
                 });
+    }
+
+
+    // =========================================================
+    // ACTIVITY CLEANUP
+    // =========================================================
+
+    @Override
+    protected void onDestroy() {
+
+        if (countdownTimer != null) {
+
+            countdownTimer.cancel();
+        }
+
+
+        if (recording != null) {
+
+            recording.stop();
+
+            recording = null;
+        }
+
+
+        if (videoFileDescriptor != null) {
+
+            try {
+
+                videoFileDescriptor.close();
+
+            } catch (Exception ignored) {
+            }
+
+            videoFileDescriptor = null;
+        }
+
+
+        if (faceDetector != null) {
+
+            faceDetector.close();
+        }
+
+
+        super.onDestroy();
     }
 }

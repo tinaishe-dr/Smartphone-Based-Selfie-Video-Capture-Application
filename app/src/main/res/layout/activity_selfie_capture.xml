@@ -9,6 +9,7 @@
         android:id="@+id/subjectIdText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
         android:text="Subject: CHILD001"
         android:textSize="20sp"
         android:gravity="center"
@@ -26,8 +27,8 @@
 
         <View
             android:id="@+id/faceGuide"
-            android:layout_width="260dp"
-            android:layout_height="330dp"
+            android:layout_width="248dp"
+            android:layout_height="268dp"
             android:layout_gravity="center"
             android:background="@drawable/face_guide" />
 
@@ -67,5 +68,46 @@
         android:layout_width="150dp"
         android:layout_height="wrap_content"
         android:text="Next Subject" />
+
+    <!-- Storage Information -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:layout_margin="12dp"
+        android:background="@drawable/storage_card">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="VIDEO STORAGE"
+            android:textStyle="bold"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/storageDirectoryText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:text="Storage: Loading..."
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/storageSpaceText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Storage space: Loading..."
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/changeStorageButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Change Directory" />
+
+    </LinearLayout>
 
 </LinearLayout>

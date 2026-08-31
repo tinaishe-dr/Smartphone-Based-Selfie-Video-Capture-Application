@@ -17,12 +17,21 @@ import androidx.camera.core.Camera;
 import com.google.mlkit.vision.common.InputImage;
 
 import android.os.Bundle;
+import android.os.Environment;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
+
+import android.content.SharedPreferences;
+import android.net.Uri;
+import android.os.StatFs;
+import android.provider.DocumentsContract;
+import android.content.Intent;
+import androidx.documentfile.provider.DocumentFile;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -32,6 +41,7 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
 import com.google.mlkit.vision.barcode.BarcodeScanning;
 import com.google.mlkit.vision.barcode.common.Barcode;
 
+import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
@@ -51,9 +61,18 @@ public class MainActivity extends AppCompatActivity {
     private boolean barcodeScanned = false;
     private ImageAnalysis barcodeImageAnalysis;
     private ProcessCameraProvider cameraProvider;
+    private TextView storageDirectoryText;
+    private TextView storageSpaceText;
+    private Button changeStorageButton;
+
+
+    private static final int DIRECTORY_PICKER_REQUEST = 200;
+    private static final String PREFS_NAME = "storage_preferences";
+    private static final String STORAGE_URI_KEY = "storage_uri";
 
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int BARCODE_PERMISSION_CODE = 101;
+    private static final int STORAGE_PERMISSION_CODE = 102;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -71,7 +90,10 @@ public class MainActivity extends AppCompatActivity {
         scanLine = findViewById(R.id.scanLine);
         scanInstruction = findViewById(R.id.scanInstruction);
         barcodeScannerContainer = findViewById(R.id.barcodeScannerContainer);
-        barcodeScannerContainer.setVisibility(View.GONE);
+        //barcodeScannerContainer.setVisibility(View.GONE);
+        storageDirectoryText = findViewById(R.id.storageDirectoryText);
+        storageSpaceText = findViewById(R.id.storageSpaceText);
+        changeStorageButton = findViewById(R.id.changeStorageButton);
 
         startScanAnimation();
 
@@ -99,6 +121,15 @@ public class MainActivity extends AppCompatActivity {
 //            checkCameraPermission();
 //            startCamera();
 //        });
+
+        // Change storage directory
+        changeStorageButton.setOnClickListener(v -> {
+
+            openStorageDirectoryPicker();
+
+        });
+        // Display storage information
+        updateStorageInformation();
 
         startScanButton.setOnClickListener(v -> {
 
@@ -165,6 +196,282 @@ public class MainActivity extends AppCompatActivity {
 
             startActivity(intent);
         });
+
+    }
+
+    private void openStorageDirectoryPicker() {
+
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                STORAGE_PERMISSION_CODE
+        );
+    }
+    private void chooseStorageDirectory() {
+
+        Intent intent =
+                new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+
+        intent.addFlags(
+                Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                        Intent.FLAG_GRANT_WRITE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION |
+                        Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        );
+
+        startActivityForResult(
+                intent,
+                DIRECTORY_PICKER_REQUEST
+        );
+    }
+
+    @Override
+    protected void onActivityResult(
+            int requestCode,
+            int resultCode,
+            Intent data) {
+
+        super.onActivityResult(
+                requestCode,
+                resultCode,
+                data
+        );
+
+        if (requestCode == STORAGE_PERMISSION_CODE &&
+                resultCode == RESULT_OK &&
+                data != null) {
+
+            Uri treeUri =
+                    data.getData();
+
+            if (treeUri != null) {
+
+                try {
+
+                    final int takeFlags =
+                            data.getFlags()
+                                    &
+                                    (Intent.FLAG_GRANT_READ_URI_PERMISSION |
+                                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION);
+
+                    getContentResolver()
+                            .takePersistableUriPermission(
+                                    treeUri,
+                                    takeFlags
+                            );
+
+                } catch (Exception e) {
+
+                    Log.e(
+                            "STORAGE_DEBUG",
+                            "Could not persist storage permission",
+                            e
+                    );
+                }
+
+
+                // Save selected directory
+                getSharedPreferences(
+                        PREFS_NAME,
+                        MODE_PRIVATE
+                )
+                        .edit()
+                        .putString(
+                                STORAGE_URI_KEY,
+                                treeUri.toString()
+                        )
+                        .apply();
+
+
+                updateStorageInformation();
+
+
+                Toast.makeText(
+                        this,
+                        "Storage directory changed",
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        }
+    }
+
+    private void updateStorageInformation() {
+
+        // Display directory
+        String storageLocation =
+                getStorageLocationDescription();
+
+        storageDirectoryText.setText(
+                "Location: " + storageLocation
+        );
+
+
+        // Display phone storage
+        String storageInfo =
+                getPhoneStorageInformation();
+
+        storageSpaceText.setText(
+                storageInfo
+        );
+    }
+
+
+    private String getStorageLocationDescription() {
+
+        String savedUri =
+                getSharedPreferences(
+                        PREFS_NAME,
+                        MODE_PRIVATE
+                )
+                        .getString(
+                                STORAGE_URI_KEY,
+                                null
+                        );
+
+
+        // No custom directory
+        if (savedUri == null) {
+
+            File defaultDirectory =
+                    new File(
+                            getExternalFilesDir(
+                                    Environment.DIRECTORY_MOVIES
+                            ),
+                            "FaceCapture"
+                    );
+
+            return defaultDirectory
+                    .getAbsolutePath();
+        }
+
+
+        try {
+
+            Uri uri =
+                    Uri.parse(savedUri);
+
+            DocumentFile directory =
+                    DocumentFile.fromTreeUri(
+                            this,
+                            uri
+                    );
+
+            if (directory != null) {
+
+                String name =
+                        directory.getName();
+
+                if (name != null) {
+
+                    return name;
+                }
+            }
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "STORAGE_DEBUG",
+                    "Unable to read storage directory",
+                    e
+            );
+        }
+
+        return savedUri;
+    }
+
+    private String getPhoneStorageInformation() {
+
+        try {
+
+            File storage =
+                    Environment.getExternalStorageDirectory();
+
+            StatFs statFs =
+                    new StatFs(
+                            storage.getPath()
+                    );
+
+            long blockSize =
+                    statFs.getBlockSizeLong();
+
+            long totalBlocks =
+                    statFs.getBlockCountLong();
+
+            long availableBlocks =
+                    statFs.getAvailableBlocksLong();
+
+            long totalBytes =
+                    totalBlocks * blockSize;
+
+            long availableBytes =
+                    availableBlocks * blockSize;
+
+            long usedBytes =
+                    totalBytes - availableBytes;
+
+
+            return "Phone storage: "
+                    + formatStorageSize(usedBytes)
+                    + " Used / "
+                    + formatStorageSize(totalBytes)
+                    + "\nTotal: "
+                    + formatStorageSize(availableBytes)
+                    + " Free";
+
+        } catch (Exception e) {
+
+            Log.e(
+                    "STORAGE_DEBUG",
+                    "Unable to read storage information",
+                    e
+            );
+
+            return "Storage information unavailable";
+        }
+    }
+
+
+    private String formatStorageSize(long bytes) {
+
+        if (bytes <= 0) {
+            return "0 B";
+        }
+
+        double value = bytes;
+
+        String[] units = {
+                "B",
+                "KB",
+                "MB",
+                "GB",
+                "TB"
+        };
+
+        int unitIndex = 0;
+
+        while (value >= 1024 &&
+                unitIndex < units.length - 1) {
+
+            value /= 1024;
+
+            unitIndex++;
+        }
+
+        return String.format(
+                Locale.US,
+                "%.1f %s",
+                value,
+                units[unitIndex]
+        );
     }
 
     private void startScanAnimation() {
@@ -406,10 +713,11 @@ public class MainActivity extends AppCompatActivity {
                             }
 
                             // Stop scan-line animation
+                            scanInstruction.setText("Barcode scanned successfully");
                             scanLine.animate().cancel();
 
                             // Hide scanner UI
-                            barcodeScannerContainer.setVisibility(View.GONE);
+                            //barcodeScannerContainer.setVisibility(View.GONE);
 
                             // Stop camera
                             if (cameraProvider != null) {

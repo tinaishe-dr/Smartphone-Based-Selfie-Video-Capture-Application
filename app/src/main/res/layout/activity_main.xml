@@ -16,31 +16,25 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Child Face Capture"
+            android:textAlignment="center"
+            android:text="Face Capture"
             android:textSize="24sp"
             android:textStyle="bold" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text="Enter subject ID or scan barcode to begin..."
-            android:textSize="18sp" />
-
-        <EditText
-            android:id="@+id/subjectIdInput"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:hint="Enter subject ID:"
-            android:inputType="text" />
-
+        <!-- Scan button -->
         <Button
-            android:id="@+id/continueButton"
-            android:layout_width="match_parent"
+            android:id="@+id/startScanButton"
+            android:layout_width="170dp"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Continue to Selfie Capture" />
+            android:text="Scan Barcode" />
+
+<!--        <TextView-->
+<!--            android:layout_width="match_parent"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:layout_marginTop="20dp"-->
+<!--            android:text="Enter subject ID or scan barcode to begin..."-->
+<!--            android:textSize="18sp" />-->
 
         <!-- Barcode scanner area -->
         <FrameLayout
@@ -98,13 +92,61 @@
 
         </FrameLayout>
 
-        <!-- Scan button -->
-        <Button
-            android:id="@+id/startScanButton"
+        <EditText
+            android:id="@+id/subjectIdInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="10dp"
-            android:text="Scan Barcode" />
+            android:hint="Or Enter Subject ID:"
+            android:inputType="text" />
+
+        <Button
+            android:id="@+id/continueButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="Continue to Selfie Capture" />
+
+        <!-- Storage Information -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp"
+            android:layout_margin="12dp"
+            android:background="@drawable/storage_card">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="VIDEO STORAGE"
+                android:textStyle="bold"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/storageDirectoryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Storage: Loading..."
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/storageSpaceText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Storage space: Loading..."
+                android:textSize="14sp" />
+
+            <Button
+                android:id="@+id/changeStorageButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Change Directory" />
+
+        </LinearLayout>
 
     </LinearLayout>
 
