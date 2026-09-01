@@ -9,6 +9,7 @@ import androidx.camera.core.Preview;
 import androidx.camera.lifecycle.ProcessCameraProvider;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+import androidx.annotation.NonNull;
 import androidx.camera.view.PreviewView;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.ImageProxy;
@@ -18,6 +19,8 @@ import com.google.mlkit.vision.common.InputImage;
 
 import android.os.Bundle;
 import android.os.Environment;
+import android.view.inputmethod.InputMethodManager;
+import android.content.Context;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -40,6 +43,13 @@ import com.google.mlkit.vision.barcode.BarcodeScanner;
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions;
 import com.google.mlkit.vision.barcode.BarcodeScanning;
 import com.google.mlkit.vision.barcode.common.Barcode;
+
+import android.graphics.Matrix;
+import android.graphics.Rect;
+import android.graphics.RectF;
+import androidx.camera.view.transform.CoordinateTransform;
+import androidx.camera.view.transform.ImageProxyTransformFactory;
+import androidx.camera.view.transform.OutputTransform;
 
 import java.io.File;
 import java.text.SimpleDateFormat;
@@ -131,43 +141,11 @@ public class MainActivity extends AppCompatActivity {
         // Display storage information
         updateStorageInformation();
 
+        // Check for permissions at startup
+        checkAllPermissions();
+
         startScanButton.setOnClickListener(v -> {
-
-            barcodeScanned = false;
-
-            if (ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED) {
-
-                barcodeScannerContainer.setVisibility(View.VISIBLE);
-
-                scanInstruction.setText(
-                        "Place barcode inside the box"
-                );
-
-                startScanButton.setText("Scanning...");
-
-                startBarcodeScanner();
-
-            } else {
-
-                // Keep scanner UI visible
-                barcodeScannerContainer.setVisibility(View.VISIBLE);
-
-                // Tell user why scanning cannot start
-                scanInstruction.setText(
-                        "Camera permission required"
-                );
-
-                startScanButton.setText("Scan Barcode");
-
-                ActivityCompat.requestPermissions(
-                        this,
-                        new String[]{Manifest.permission.CAMERA},
-                        BARCODE_PERMISSION_CODE
-                );
-            }
+            startScanningProcess();
         });
 
         continueButton.setOnClickListener(v -> {
@@ -197,6 +175,64 @@ public class MainActivity extends AppCompatActivity {
             startActivity(intent);
         });
 
+        // Handle initial intent
+        handleIntent(getIntent());
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleIntent(intent);
+    }
+
+    private void handleIntent(Intent intent) {
+        if (intent != null && intent.getBooleanExtra("SCAN_NEXT", false)) {
+            // Reset state
+            subjectIdInput.setText("");
+            barcodeScanned = false;
+            
+            // Start scanning automatically
+            startScanningProcess();
+        }
+    }
+
+    private void startScanningProcess() {
+        barcodeScanned = false;
+
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED) {
+
+            barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+            scanInstruction.setText(
+                    "Place barcode inside the box"
+            );
+
+            startScanButton.setText("Scanning...");
+
+            startBarcodeScanner();
+
+        } else {
+
+            // Keep scanner UI visible
+            barcodeScannerContainer.setVisibility(View.VISIBLE);
+
+            // Tell user why scanning cannot start
+            scanInstruction.setText(
+                    "Camera permission required"
+            );
+
+            startScanButton.setText("Scan Barcode");
+
+            ActivityCompat.requestPermissions(
+                    this,
+                    new String[]{Manifest.permission.CAMERA},
+                    BARCODE_PERMISSION_CODE
+            );
+        }
     }
 
     private void openStorageDirectoryPicker() {
@@ -498,6 +534,35 @@ public class MainActivity extends AppCompatActivity {
         });
     }
 
+    private void checkAllPermissions() {
+        String[] permissions;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissions = new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_IMAGES
+            };
+        } else {
+            permissions = new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+        }
+
+        boolean allGranted = true;
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+
+        if (!allGranted) {
+            ActivityCompat.requestPermissions(this, permissions, 300);
+        }
+    }
+
     private void checkCameraPermission() {
         if (ContextCompat.checkSelfPermission(
                 this,
@@ -526,14 +591,30 @@ public class MainActivity extends AppCompatActivity {
     @Override
     public void onRequestPermissionsResult(
             int requestCode,
-            String[] permissions,
-            int[] grantResults) {
+            @NonNull String[] permissions,
+            @NonNull int[] grantResults) {
 
         super.onRequestPermissionsResult(
                 requestCode,
                 permissions,
                 grantResults
         );
+
+        if (requestCode == 300) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                Toast.makeText(this, "All permissions granted", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Permissions are required for the app to function properly", Toast.LENGTH_LONG).show();
+            }
+            return;
+        }
 
         if (requestCode == CAMERA_PERMISSION_CODE) {
 
@@ -607,11 +688,7 @@ public class MainActivity extends AppCompatActivity {
 
         BarcodeScannerOptions options =
                 new BarcodeScannerOptions.Builder()
-                        .setBarcodeFormats(
-                                Barcode.FORMAT_CODE_128,
-                                Barcode.FORMAT_CODE_39,
-                                Barcode.FORMAT_QR_CODE
-                        )
+                        .setBarcodeFormats(Barcode.FORMAT_ALL_FORMATS)
                         .build();
 
         BarcodeScanner scanner = BarcodeScanning.getClient(options);
@@ -676,6 +753,7 @@ public class MainActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
+    @androidx.annotation.OptIn(markerClass = androidx.camera.view.TransformExperimental.class)
     private void processBarcodeImage(
             BarcodeScanner scanner,
             ImageProxy imageProxy) {
@@ -697,7 +775,59 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
 
+                    if (barcodes.isEmpty()) {
+                        runOnUiThread(() -> scanInstruction.setText("Place barcode inside the box"));
+                        return;
+                    }
+
                     for (Barcode barcode : barcodes) {
+
+                        Rect bounds = barcode.getBoundingBox();
+                        if (bounds == null) continue;
+
+                        int guideLeft = scannerBox.getLeft();
+                        int guideTop = scannerBox.getTop();
+                        int guideRight = scannerBox.getRight();
+                        int guideBottom = scannerBox.getBottom();
+
+                        ImageProxyTransformFactory factory = new ImageProxyTransformFactory();
+                        OutputTransform imageTransform = factory.getOutputTransform(imageProxy);
+                        OutputTransform previewTransform = barcodePreview.getOutputTransform();
+
+                        if (previewTransform == null) {
+                            imageProxy.close();
+                            return;
+                        }
+
+                        CoordinateTransform coordinateTransform = new CoordinateTransform(imageTransform, previewTransform);
+                        Matrix matrix = new Matrix();
+                        coordinateTransform.transform(matrix);
+
+                        RectF barcodeRect = new RectF(bounds);
+                        matrix.mapRect(barcodeRect);
+
+                        // Check if barcode is within the scanner box (mostly)
+                        boolean insideBox = 
+                                barcodeRect.centerX() >= guideLeft &&
+                                barcodeRect.centerX() <= guideRight &&
+                                barcodeRect.centerY() >= guideTop &&
+                                barcodeRect.centerY() <= guideBottom;
+
+                        // Check distance (size of barcode)
+                        // A barcode should occupy a reasonable portion of the scan area
+                        int minBarcodeWidth = 200; // Threshold for "close enough" in pixels (UI space)
+                        boolean closeEnough = barcodeRect.width() >= minBarcodeWidth;
+
+                        if (!insideBox || !closeEnough) {
+                            runOnUiThread(() -> {
+                                if (!insideBox) {
+                                    scanInstruction.setText("Center the barcode in the box");
+                                } else {
+                                    scanInstruction.setText("Move closer to the barcode");
+                                }
+                            });
+                            continue;
+                        }
 
                         String rawValue = barcode.getRawValue();
 
@@ -706,6 +836,12 @@ public class MainActivity extends AppCompatActivity {
                             barcodeScanned = true;
 
                             subjectIdInput.setText(rawValue);
+
+                            // Hide keyboard if it was open
+                            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                            if (imm != null) {
+                                imm.hideSoftInputFromWindow(subjectIdInput.getWindowToken(), 0);
+                            }
 
                             // Stop barcode analysis
                             if (barcodeImageAnalysis != null) {
