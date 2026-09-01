@@ -41,6 +41,8 @@ import androidx.camera.video.VideoRecordEvent;
 import androidx.camera.video.PendingRecording;
 
 import androidx.core.content.ContextCompat;
+import androidx.core.app.ActivityCompat;
+import androidx.annotation.NonNull;
 
 import androidx.documentfile.provider.DocumentFile;
 
@@ -82,6 +84,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     private Button changeStorageButton;
 
     private CountDownTimer countdownTimer;
+    private CountDownTimer recordingCountdownTimer;
 
     private boolean isCountdownRunning = false;
     private boolean isRecording = false;
@@ -129,6 +132,12 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                     SelfieCaptureActivity.this,
                     MainActivity.class
             );
+            
+            // Behave like navigator.pushReplacement() / Clear stack above MainActivity
+            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            
+            // Tell MainActivity to reset and start scanning
+            intent.putExtra("SCAN_NEXT", true);
 
             startActivity(intent);
 
@@ -191,30 +200,71 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
 
         // Start camera
-        if (ContextCompat.checkSelfPermission(
-                this,
-                Manifest.permission.CAMERA
-        ) == PackageManager.PERMISSION_GRANTED) {
+        checkAndRequestPermissions();
+    }
 
-            FaceDetectorOptions options =
-                    new FaceDetectorOptions.Builder()
-                            .setPerformanceMode(
-                                    FaceDetectorOptions.PERFORMANCE_MODE_FAST
-                            )
-                            .build();
-
-            faceDetector =
-                    FaceDetection.getClient(options);
-
-            startSelfieCamera();
-
+    private void checkAndRequestPermissions() {
+        String[] permissions;
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            permissions = new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.READ_MEDIA_VIDEO,
+                    Manifest.permission.READ_MEDIA_IMAGES
+            };
         } else {
+            permissions = new String[]{
+                    Manifest.permission.CAMERA,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE,
+                    Manifest.permission.READ_EXTERNAL_STORAGE
+            };
+        }
 
-            Toast.makeText(
-                    this,
-                    "Camera permission is required",
-                    Toast.LENGTH_LONG
-            ).show();
+        boolean allGranted = true;
+        for (String permission : permissions) {
+            if (ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED) {
+                allGranted = false;
+                break;
+            }
+        }
+
+        if (allGranted) {
+            initializeFaceDetectorAndCamera();
+        } else {
+            androidx.core.app.ActivityCompat.requestPermissions(this, permissions, 301);
+        }
+    }
+
+    private void initializeFaceDetectorAndCamera() {
+        FaceDetectorOptions options =
+                new FaceDetectorOptions.Builder()
+                        .setPerformanceMode(
+                                FaceDetectorOptions.PERFORMANCE_MODE_FAST
+                        )
+                        .build();
+
+        faceDetector =
+                FaceDetection.getClient(options);
+
+        startSelfieCamera();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == 301) {
+            boolean allGranted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    allGranted = false;
+                    break;
+                }
+            }
+            if (allGranted) {
+                initializeFaceDetectorAndCamera();
+            } else {
+                Toast.makeText(this, "Camera and Storage permissions are required", Toast.LENGTH_LONG).show();
+                finish();
+            }
         }
     }
 
@@ -937,69 +987,36 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
 
                                 runOnUiThread(() -> {
-
-                                    startRecordingButton
-                                            .setText(
-                                                    "Recording..."
-                                            );
-
-                                    startRecordingButton
-                                            .setEnabled(
-                                                    false
-                                            );
-
-                                    statusText.setText(
-                                            "Recording..."
-                                    );
+                                    startRecordingButton.setText("Stop Recording");
+                                    startRecordingButton.setEnabled(true);
+                                    backButton.setEnabled(false); // Disable Next Subject during recording
+                                    statusText.setText("Recording...");
                                 });
 
+                                if (recordingCountdownTimer != null) {
+                                    recordingCountdownTimer.cancel();
+                                }
 
-                                new CountDownTimer(
-                                        5000,
-                                        1000
-                                ) {
-
+                                recordingCountdownTimer = new CountDownTimer(5500, 1000) {
                                     @Override
-                                    public void onTick(
-                                            long millisUntilFinished) {
-
-                                        int seconds =
-                                                (int) Math.ceil(
-                                                        millisUntilFinished
-                                                                / 1000.0
-                                                );
-
-                                        countdownText
-                                                .setVisibility(
-                                                        View.VISIBLE
-                                                );
-
-                                        countdownText.setText(
-                                                "Recording: "
-                                                        + seconds
-                                        );
+                                    public void onTick(long millisUntilFinished) {
+                                        int seconds = (int) Math.ceil(millisUntilFinished / 1000.0);
+                                        // Ensure we don't show more than 5 if there's a small buffer
+                                        int displaySeconds = Math.min(5, seconds);
+                                        
+                                        countdownText.setVisibility(View.VISIBLE);
+                                        countdownText.setText("Recording: " + displaySeconds);
                                     }
-
 
                                     @Override
                                     public void onFinish() {
-
-                                        countdownText
-                                                .setVisibility(
-                                                        View.GONE
-                                                );
-
+                                        countdownText.setVisibility(View.GONE);
                                         if (recording != null) {
-
-                                            Log.d(
-                                                    "VIDEO_DEBUG",
-                                                    "5 seconds reached - stopping recording"
-                                            );
-
-                                            recording.stop();
+                                            Log.d("VIDEO_DEBUG", "Time reached - stopping recording");
+                                            stopRecording();
                                         }
+                                        recordingCountdownTimer = null;
                                     }
-
                                 }.start();
                             }
 
@@ -1046,6 +1063,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                                         true
                                                 );
 
+                                        backButton.setEnabled(true); // Re-enable Next Subject
 
                                         // Refresh storage display
                                         updateStorageInformation();
@@ -1080,6 +1098,8 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                                 .setEnabled(
                                                         true
                                                 );
+                                        
+                                        backButton.setEnabled(true); // Re-enable Next Subject
                                     });
                                 }
 
@@ -1119,19 +1139,26 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     // =========================================================
 
     private void stopRecording() {
+        if (recordingCountdownTimer != null) {
+            recordingCountdownTimer.cancel();
+            recordingCountdownTimer = null;
+        }
+
+        if (countdownText.getVisibility() == View.VISIBLE) {
+            countdownText.setText("Recording stopped");
+            countdownText.postDelayed(() -> {
+                // Ensure text is still "Recording stopped" before hiding
+                // to avoid hiding if a new countdown started (rare)
+                if (countdownText.getText().toString().equals("Recording stopped")) {
+                    countdownText.setVisibility(View.GONE);
+                }
+            }, 1000);
+        }
 
         if (recording != null) {
-
-            Log.d(
-                    "VIDEO_DEBUG",
-                    "Stopping recording"
-            );
-
+            Log.d("VIDEO_DEBUG", "Stopping recording");
             recording.stop();
-
-            startRecordingButton.setText(
-                    "Start Recording"
-            );
+            // Button text will be reset in Finalize event
         }
     }
 
@@ -1140,6 +1167,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
     // FACE DETECTION
     // =========================================================
 
+    @androidx.annotation.OptIn(markerClass = androidx.camera.view.TransformExperimental.class)
     private void processFaceImage(
             ImageProxy imageProxy) {
 
@@ -1215,6 +1243,10 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                 selfiePreview
                                         .getOutputTransform();
 
+                        if (previewTransform == null) {
+                            imageProxy.close();
+                            return;
+                        }
 
                         CoordinateTransform
                                 coordinateTransform =
@@ -1258,53 +1290,6 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                 bounds.width();
 
 
-                        int faceCenterX =
-                                bounds.centerX();
-
-                        int faceCenterY =
-                                bounds.centerY();
-
-
-                        int imageWidth =
-                                imageProxy.getWidth();
-
-                        int imageHeight =
-                                imageProxy.getHeight();
-
-
-                        int imageCenterX =
-                                imageWidth / 2;
-
-                        int imageCenterY =
-                                imageHeight / 2;
-
-
-                        int differenceX =
-                                Math.abs(
-                                        faceCenterX -
-                                                imageCenterX
-                                );
-
-
-                        int differenceY =
-                                Math.abs(
-                                        faceCenterY -
-                                                imageCenterY
-                                );
-
-
-                        int toleranceX =
-                                imageWidth / 8;
-
-                        int toleranceY =
-                                imageHeight / 8;
-
-
-                        boolean centered =
-                                differenceX <= toleranceX &&
-                                        differenceY <= toleranceY;
-
-
                         int minFaceWidth = 250;
                         int maxFaceWidth = 600;
 
@@ -1336,7 +1321,6 @@ public class SelfieCaptureActivity extends AppCompatActivity {
 
                         boolean ready =
                                 faceCenterInsideGuide &&
-                                        centered &&
                                         goodDistance;
 
 
@@ -1373,7 +1357,7 @@ public class SelfieCaptureActivity extends AppCompatActivity {
                                         "Ready - Hold still"
                                 );
 
-                            } else if (!centered) {
+                            } else if (!faceCenterInsideGuide) {
 
                                 statusText.setText(
                                         "Please center your face"
@@ -1418,6 +1402,11 @@ public class SelfieCaptureActivity extends AppCompatActivity {
         if (countdownTimer != null) {
 
             countdownTimer.cancel();
+        }
+
+        if (recordingCountdownTimer != null) {
+
+            recordingCountdownTimer.cancel();
         }
 
 
